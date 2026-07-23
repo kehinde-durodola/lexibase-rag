@@ -42,3 +42,5 @@ next-env.d.ts
 
 # Private Documentation
 BLUEPRINT.md
+
+/src/generated/prisma
