@@ -4,8 +4,8 @@ import GitHub from "next-auth/providers/github"
 
 export const authConfig = {
   providers: [
-    Google,
-    GitHub,
+    Google({ allowDangerousEmailAccountLinking: true }),
+    GitHub({ allowDangerousEmailAccountLinking: true }),
   ],
   callbacks: {
     async jwt({ token, user }) {
