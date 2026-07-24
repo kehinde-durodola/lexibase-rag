@@ -11,12 +11,15 @@ export const authConfig = {
     async jwt({ token, user }) {
       if (user) {
         token.id = user.id
+        // user object from PrismaAdapter has the DB fields
+        token.createdAt = (user as any).createdAt
       }
       return token
     },
     async session({ session, token }) {
       if (session.user && token.id) {
         session.user.id = token.id as string
+        session.user.createdAt = (token.createdAt as Date | string)?.toString() || ""
       }
       return session
     },

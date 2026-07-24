@@ -1,9 +1,8 @@
 "use client"
 import { useState, useRef, useEffect } from 'react'
-import { signOut } from "next-auth/react"
-import { DUMMY_SESSION } from "@/lib/dummy-data"
+import { signOut, useSession } from "next-auth/react"
 
-const TOKENS_REMAINING = DUMMY_SESSION.tokens
+const TOKENS_REMAINING = 10
 const TOKENS_TOTAL = 10
 
 function LexibaseMark() {
@@ -178,7 +177,7 @@ function ConfirmModal({
 }
 
 function SettingsModal({ onClose, user }: { onClose: () => void, user: any }) {
-  const [name, setName] = useState(user.name || '')
+  const [name, setName] = useState(user?.name || '')
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
   
   return (
@@ -270,7 +269,7 @@ function SettingsModal({ onClose, user }: { onClose: () => void, user: any }) {
             Email Address
           </label>
           <input
-            value={user.email}
+            value={user?.email || ''}
             disabled
             style={{
               width: '100%',
@@ -285,7 +284,7 @@ function SettingsModal({ onClose, user }: { onClose: () => void, user: any }) {
             }}
           />
           <div style={{ marginTop: 8, fontSize: 11, color: '#4a5070', fontFamily: "'DM Mono', monospace" }}>
-            Member since July 2026
+            Member since {user?.createdAt ? new Date(user.createdAt).toLocaleDateString('en-US', { month: 'long', year: 'numeric' }) : 'Unknown'}
           </div>
         </div>
 
@@ -331,6 +330,9 @@ function SettingsModal({ onClose, user }: { onClose: () => void, user: any }) {
 }
 
 export default function DashboardClient() {
+  const { data: session } = useSession()
+  const user = session?.user
+
   const [showSettingsModal, setShowSettingsModal] = useState(false)
   const [showRemoveDocConfirm, setShowRemoveDocConfirm] = useState(false)
   const [isSidebarOpen, setIsSidebarOpen] = useState(false)
@@ -382,7 +384,7 @@ export default function DashboardClient() {
         overflow: 'hidden',
       }}
     >
-      {showSettingsModal && <SettingsModal onClose={() => setShowSettingsModal(false)} user={DUMMY_SESSION.user} />}
+      {showSettingsModal && user && <SettingsModal onClose={() => setShowSettingsModal(false)} user={user} />}
       {showRemoveDocConfirm && (
         <ConfirmModal
           title="Remove Document?"
@@ -615,9 +617,14 @@ export default function DashboardClient() {
                   color: '#fff',
                   flexShrink: 0,
                   letterSpacing: '-0.02em',
+                  overflow: 'hidden',
                 }}
               >
-                AD
+                {user?.image ? (
+                  <img src={user.image} alt={user?.name || "User"} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                ) : (
+                  user?.name ? user.name.substring(0, 2).toUpperCase() : "U"
+                )}
               </div>
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div
@@ -629,7 +636,7 @@ export default function DashboardClient() {
                     letterSpacing: '-0.01em',
                   }}
                 >
-                  {DUMMY_SESSION.user.name}
+                  {user?.name || "Loading..."}
                 </div>
                 <div
                   style={{
@@ -641,7 +648,7 @@ export default function DashboardClient() {
                     fontFamily: "'DM Mono', monospace",
                   }}
                 >
-                  {DUMMY_SESSION.user.email}
+                  {user?.email || "..."}
                 </div>
               </div>
             </div>
@@ -731,37 +738,6 @@ export default function DashboardClient() {
             </span>
           </div>
           <div style={{ flex: 1 }} />
-          <div
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: 6,
-              padding: '4px 10px',
-              borderRadius: 20,
-              background: 'rgba(124,107,255,0.08)',
-              border: '1px solid rgba(124,107,255,0.15)',
-            }}
-          >
-            <div
-              style={{
-                width: 6,
-                height: 6,
-                borderRadius: '50%',
-                background: '#7c6bff',
-                boxShadow: '0 0 8px rgba(124,107,255,0.8)',
-              }}
-            />
-            <span
-              style={{
-                fontSize: 10.5,
-                fontFamily: "'DM Mono', monospace",
-                color: '#a598ff',
-                fontWeight: 400,
-              }}
-            >
-              Lexibase AI · v1.0
-            </span>
-          </div>
         </div>
 
         <div
