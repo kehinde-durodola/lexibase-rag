@@ -97,13 +97,15 @@ function ConfirmModal({
   message,
   confirmText,
   onConfirm,
-  onCancel
+  onCancel,
+  isLoading = false
 }: {
   title: string
   message: string
   confirmText: string
   onConfirm: () => void
   onCancel: () => void
+  isLoading?: boolean
 }) {
   return (
     <div
@@ -163,12 +165,14 @@ function ConfirmModal({
               color: '#fff',
               fontSize: 13,
               fontWeight: 600,
-              cursor: 'pointer',
+              cursor: isLoading ? 'not-allowed' : 'pointer',
               fontFamily: "'Plus Jakarta Sans', sans-serif",
               boxShadow: '0 4px 12px rgba(255,59,48,0.3)',
+              opacity: isLoading ? 0.7 : 1,
             }}
+            disabled={isLoading}
           >
-            {confirmText}
+            {isLoading ? "Processing..." : confirmText}
           </button>
         </div>
       </div>
@@ -176,9 +180,51 @@ function ConfirmModal({
   )
 }
 
-function SettingsModal({ onClose, user }: { onClose: () => void, user: any }) {
+function SettingsModal({ onClose, user, update }: { onClose: () => void, user: any, update: any }) {
   const [name, setName] = useState(user?.name || '')
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
+  const [isSaving, setIsSaving] = useState(false)
+  const [isDeleting, setIsDeleting] = useState(false)
+
+  async function handleSave() {
+    if (name === user?.name) {
+      onClose()
+      return
+    }
+    setIsSaving(true)
+    try {
+      const res = await fetch('/api/user', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name }),
+      })
+      if (res.ok) {
+        await update({ name })
+        onClose()
+      }
+    } catch (e) {
+      console.error(e)
+    } finally {
+      setIsSaving(false)
+    }
+  }
+
+  async function handleDelete() {
+    setIsDeleting(true)
+    try {
+      const res = await fetch('/api/user', {
+        method: 'DELETE',
+      })
+      if (res.ok) {
+        await signOut({ callbackUrl: '/' })
+      }
+    } catch (e) {
+      console.error(e)
+    } finally {
+      setIsDeleting(false)
+      setShowDeleteConfirm(false)
+    }
+  }
   
   return (
     <>
@@ -188,10 +234,8 @@ function SettingsModal({ onClose, user }: { onClose: () => void, user: any }) {
           message="Are you sure you want to permanently delete your account and all associated data? This action cannot be undone."
           confirmText="Delete Account"
           onCancel={() => setShowDeleteConfirm(false)}
-          onConfirm={() => {
-            setShowDeleteConfirm(false)
-            onClose()
-          }}
+          onConfirm={handleDelete}
+          isLoading={isDeleting}
         />
       )}
     <div
@@ -300,13 +344,15 @@ function SettingsModal({ onClose, user }: { onClose: () => void, user: any }) {
               cursor: 'pointer',
               fontFamily: "'Plus Jakarta Sans', sans-serif",
               padding: '8px 0',
+              opacity: isDeleting ? 0.5 : 1,
             }}
+            disabled={isDeleting}
           >
-            Delete Account
+            {isDeleting ? "Deleting..." : "Delete Account"}
           </button>
           
           <button
-            onClick={onClose}
+            onClick={handleSave}
             style={{
               background: 'linear-gradient(135deg, #7c6bff, #a598ff)',
               border: 'none',
@@ -318,9 +364,11 @@ function SettingsModal({ onClose, user }: { onClose: () => void, user: any }) {
               fontFamily: "'Plus Jakarta Sans', sans-serif",
               padding: '10px 20px',
               boxShadow: '0 4px 12px rgba(124,107,255,0.3)',
+              opacity: isSaving ? 0.7 : 1,
             }}
+            disabled={isSaving}
           >
-            Save Changes
+            {isSaving ? "Saving..." : "Save Changes"}
           </button>
         </div>
       </div>
@@ -330,7 +378,7 @@ function SettingsModal({ onClose, user }: { onClose: () => void, user: any }) {
 }
 
 export default function DashboardClient() {
-  const { data: session } = useSession()
+  const { data: session, update } = useSession()
   const user = session?.user
 
   const [showSettingsModal, setShowSettingsModal] = useState(false)
@@ -384,7 +432,7 @@ export default function DashboardClient() {
         overflow: 'hidden',
       }}
     >
-      {showSettingsModal && user && <SettingsModal onClose={() => setShowSettingsModal(false)} user={user} />}
+      {showSettingsModal && user && <SettingsModal onClose={() => setShowSettingsModal(false)} user={user} update={update} />}
       {showRemoveDocConfirm && (
         <ConfirmModal
           title="Remove Document?"
