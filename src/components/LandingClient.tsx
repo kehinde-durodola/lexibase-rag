@@ -51,7 +51,6 @@ function HeroChatPreview() {
         boxShadow: '0 40px 80px rgba(0,0,0,0.6), 0 0 0 1px rgba(124,107,255,0.08)',
       }}
     >
-      {/* Window chrome */}
       <div
         style={{
           padding: '12px 16px',
@@ -87,9 +86,7 @@ function HeroChatPreview() {
         </div>
       </div>
 
-      {/* Chat messages */}
       <div style={{ padding: '20px 20px 16px' }}>
-        {/* User message */}
         <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 16 }}>
           <div
             style={{
@@ -108,7 +105,6 @@ function HeroChatPreview() {
           </div>
         </div>
 
-        {/* AI message */}
         <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start', marginBottom: 16 }}>
           <div
             style={{
@@ -194,7 +190,6 @@ function HeroChatPreview() {
           </div>
         </div>
 
-        {/* Token bar */}
         <div
           style={{
             display: 'flex',
@@ -421,7 +416,6 @@ export default function LandingClient() {
       }}
     >
       {showAuthModal && <AuthModal onClose={() => setShowAuthModal(false)} />}
-      {/* ── HEADER ─────────────────────────────────────────── */}
       <header
         style={{
           position: 'sticky',
@@ -443,7 +437,6 @@ export default function LandingClient() {
             justifyContent: 'space-between',
           }}
         >
-          {/* Logo */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
             <LexibaseMark />
             <span
@@ -458,7 +451,6 @@ export default function LandingClient() {
             </span>
           </div>
 
-          {/* Sign In */}
           <button
             onClick={handleAuth}
             style={{
@@ -494,7 +486,6 @@ export default function LandingClient() {
         </div>
       </header>
 
-      {/* ── HERO ───────────────────────────────────────────── */}
       <section
         className="mobile-padding"
         style={{
@@ -512,7 +503,6 @@ export default function LandingClient() {
             alignItems: 'center',
           }}
         >
-          {/* Left: Copy */}
           <div>
             <h1
               style={{
@@ -624,9 +614,7 @@ export default function LandingClient() {
 
           </div>
 
-          {/* Right: Preview */}
           <div style={{ position: 'relative' }}>
-            {/* Glow behind card */}
             <div
               style={{
                 position: 'absolute',
@@ -644,7 +632,6 @@ export default function LandingClient() {
         </div>
       </section>
 
-      {/* ── DIVIDER ─────────────────────────────────────────── */}
       <div
         style={{
           maxWidth: 1100,
@@ -661,7 +648,6 @@ export default function LandingClient() {
         />
       </div>
 
-      {/* ── FEATURES ─────────────────────────────────────────── */}
       <section
         className="mobile-padding-lg"
         style={{
@@ -781,7 +767,6 @@ export default function LandingClient() {
       </section>
 
 
-      {/* ── FOOTER ──────────────────────────────────────────── */}
       <footer
         style={{
           borderTop: '1px solid rgba(255,255,255,0.05)',

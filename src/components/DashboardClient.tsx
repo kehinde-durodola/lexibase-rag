@@ -70,8 +70,8 @@ function TokenSegments({ remaining, total }: { remaining: number; total: number 
 
 interface Message {
   role: 'user' | 'assistant'
-  content: string
-  citation?: string
+  content: React.ReactNode | string
+  sources?: { index: number; page: number }[]
 }
 
 const initialMessages: Message[] = [
@@ -81,9 +81,15 @@ const initialMessages: Message[] = [
   },
   {
     role: 'assistant',
-    content:
-      'The primary conclusion of the Q3 report is that the current server infrastructure is reaching its maximum capacity and requires an immediate migration to a distributed microservices architecture by Q4.',
-    citation: '1',
+    content: (
+      <>
+        The primary conclusion of the Q3 report is that the current server infrastructure is reaching its maximum capacity <CitationBadge index={1} /> and requires an immediate migration to a distributed microservices architecture by Q4 <CitationBadge index={2} />.
+      </>
+    ),
+    sources: [
+      { index: 1, page: 47 },
+      { index: 2, page: 12 },
+    ]
   },
 ]
 
@@ -184,7 +190,6 @@ function SettingsModal({ onClose, user }: { onClose: () => void, user: any }) {
           confirmText="Delete Account"
           onCancel={() => setShowDeleteConfirm(false)}
           onConfirm={() => {
-            // Add real deletion logic here later
             setShowDeleteConfirm(false)
             onClose()
           }}
@@ -403,7 +408,6 @@ export default function DashboardClient() {
           }}
         />
       )}
-      {/* ── Sidebar ──────────────────────────────────────────── */}
       <aside
         className={`dashboard-sidebar ${isSidebarOpen ? 'open' : ''}`}
         style={{
@@ -417,7 +421,6 @@ export default function DashboardClient() {
           zIndex: 10,
         }}
       >
-        {/* Logo */}
         <div style={{ padding: '0 20px 28px' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
             <LexibaseMark />
@@ -434,10 +437,8 @@ export default function DashboardClient() {
           </div>
         </div>
 
-        {/* Divider */}
         <div style={{ borderTop: '1px solid rgba(255,255,255,0.05)', margin: '0 20px 24px' }} />
 
-        {/* Active Document */}
         <div style={{ padding: '0 20px' }}>
           <div
             style={{
@@ -542,10 +543,8 @@ export default function DashboardClient() {
           )}
         </div>
 
-        {/* Spacer */}
         <div style={{ flex: 1 }} />
 
-        {/* Token Usage */}
         <div style={{ padding: '0 20px 24px' }}>
           <div style={{ borderTop: '1px solid rgba(255,255,255,0.05)', paddingTop: 20 }}>
             <div
@@ -594,7 +593,6 @@ export default function DashboardClient() {
           </div>
         </div>
 
-        {/* User Profile */}
         <div style={{ padding: '0 20px' }}>
           <div style={{ borderTop: '1px solid rgba(255,255,255,0.05)', paddingTop: 16 }}>
             <div 
@@ -682,7 +680,6 @@ export default function DashboardClient() {
         </div>
       </aside>
 
-      {/* ── Main Chat Area ───────────────────────────────────── */}
       <main
         style={{
           flex: 1,
@@ -692,7 +689,6 @@ export default function DashboardClient() {
           position: 'relative',
         }}
       >
-        {/* Subtle top header bar */}
         <div
           style={{
             height: 56,
@@ -768,7 +764,6 @@ export default function DashboardClient() {
           </div>
         </div>
 
-        {/* Messages */}
         <div
           style={{
             flex: 1,
@@ -781,14 +776,13 @@ export default function DashboardClient() {
               msg.role === 'user' ? (
                 <UserMessage key={i} content={msg.content} />
               ) : (
-                <AssistantMessage key={i} content={msg.content} citation={msg.citation} />
+                <AssistantMessage key={i} content={msg.content} sources={msg.sources} />
               )
             )}
             <div ref={bottomRef} />
           </div>
         </div>
 
-        {/* Input Area */}
         <div
           style={{
             padding: '0 32px 28px',
@@ -893,7 +887,7 @@ export default function DashboardClient() {
   )
 }
 
-function UserMessage({ content }: { content: string }) {
+function UserMessage({ content }: { content: React.ReactNode | string }) {
   return (
     <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
       <div
@@ -917,35 +911,30 @@ function UserMessage({ content }: { content: string }) {
   )
 }
 
-function AssistantMessage({ content, citation }: { content: string; citation?: string }) {
+function AssistantMessage({ content, sources }: { content: React.ReactNode | string; sources?: { index: number; page: number }[] }) {
   return (
-    <div style={{ display: 'flex', gap: 14, alignItems: 'flex-start' }}>
-      {/* Avatar */}
+    <div style={{ display: 'flex', gap: 16 }}>
       <div
         style={{
           width: 32,
           height: 32,
-          borderRadius: 9,
-          background: 'linear-gradient(135deg, rgba(124,107,255,0.2), rgba(165,152,255,0.1))',
-          border: '1px solid rgba(124,107,255,0.25)',
+          borderRadius: 8,
+          background: 'linear-gradient(135deg, rgba(124,107,255,0.2) 0%, rgba(124,107,255,0.05) 100%)',
+          border: '1px solid rgba(124,107,255,0.2)',
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
           flexShrink: 0,
-          marginTop: 2,
         }}
       >
-        <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-          <circle cx="7" cy="5" r="2" fill="#a598ff" fillOpacity="0.8" />
-          <path d="M2 12c0-2.76 2.24-5 5-5s5 2.24 5 5" stroke="#7c6bff" strokeWidth="1.2" strokeOpacity="0.6" strokeLinecap="round" />
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#7c6bff" strokeWidth="2">
+          <path d="M12 2a2 2 0 0 1 2 2c-.001.552-.448 1-1 1-.552.001-1 .448-1 1v1h2a2 2 0 0 1 2 2v2h3a2 2 0 0 1 2 2v2a2 2 0 0 1-2 2h-3v2a2 2 0 0 1-2 2H9a2 2 0 0 1-2-2v-2H4a2 2 0 0 1-2-2v-2a2 2 0 0 1 2-2h3V9a2 2 0 0 1 2-2h2V6c0-.552-.448-1-1-1-.552-.001-1-.448-1-1a2 2 0 0 1 2-2z" strokeLinecap="round" strokeLinejoin="round"/>
         </svg>
       </div>
-
-      {/* Bubble */}
       <div style={{ flex: 1 }}>
         <div
           style={{
-            fontSize: 10.5,
+            fontSize: 11,
             fontFamily: "'DM Mono', monospace",
             color: '#a598ff',
             letterSpacing: '0.06em',
@@ -970,67 +959,44 @@ function AssistantMessage({ content, citation }: { content: string; citation?: s
           }}
         >
           <span>{content}</span>
-          {citation && (
-            <sup
-              style={{
-                display: 'inline-flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                marginLeft: 4,
-                marginBottom: 4,
-                width: 16,
-                height: 16,
-                borderRadius: 4,
-                background: 'rgba(200,160,84,0.15)',
-                border: '1px solid rgba(200,160,84,0.35)',
-                fontSize: 8.5,
-                fontFamily: "'DM Mono', monospace",
-                color: '#c8a054',
-                fontWeight: 500,
-                lineHeight: 1,
-                verticalAlign: 'top',
-                position: 'relative',
-                top: 3,
-                cursor: 'pointer',
-              }}
-            >
-              {citation}
-            </sup>
-          )}
         </div>
 
-        {citation && (
-          <div
-            style={{
-              marginTop: 10,
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: 7,
-              padding: '5px 10px',
-              background: 'rgba(200,160,84,0.06)',
-              border: '1px solid rgba(200,160,84,0.15)',
-              borderRadius: 7,
-              cursor: 'pointer',
-              transition: 'background 0.15s',
-            }}
-            onMouseEnter={(e) => {
-              (e.currentTarget as HTMLDivElement).style.background = 'rgba(200,160,84,0.1)'
-            }}
-            onMouseLeave={(e) => {
-              (e.currentTarget as HTMLDivElement).style.background = 'rgba(200,160,84,0.06)'
-            }}
-          >
-            <PdfIcon />
-            <span
-              style={{
-                fontSize: 10.5,
-                fontFamily: "'DM Mono', monospace",
-                color: '#8a7040',
-                letterSpacing: '0.03em',
-              }}
-            >
-              Source [{citation}] · Q3_Enterprise_Architecture_Report_2026.pdf
-            </span>
+        {sources && sources.length > 0 && (
+          <div style={{ marginTop: 10, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            {sources.map((src) => (
+              <div
+                key={src.index}
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 7,
+                  padding: '5px 10px',
+                  background: 'rgba(200,160,84,0.06)',
+                  border: '1px solid rgba(200,160,84,0.15)',
+                  borderRadius: 7,
+                  cursor: 'pointer',
+                  transition: 'background 0.15s',
+                }}
+                onMouseEnter={(e) => {
+                  (e.currentTarget as HTMLDivElement).style.background = 'rgba(200,160,84,0.1)'
+                }}
+                onMouseLeave={(e) => {
+                  (e.currentTarget as HTMLDivElement).style.background = 'rgba(200,160,84,0.06)'
+                }}
+              >
+                <PdfIcon />
+                <span
+                  style={{
+                    fontSize: 10.5,
+                    fontFamily: "'DM Mono', monospace",
+                    color: '#8a7040',
+                    letterSpacing: '0.03em',
+                  }}
+                >
+                  Source [{src.index}] · Page {src.page}
+                </span>
+              </div>
+            ))}
           </div>
         )}
       </div>
@@ -1038,4 +1004,32 @@ function AssistantMessage({ content, citation }: { content: string; citation?: s
   )
 }
 
-
+export function CitationBadge({ index }: { index: number }) {
+  return (
+    <sup
+      style={{
+        display: 'inline-flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        marginLeft: 4,
+        marginBottom: 4,
+        width: 16,
+        height: 16,
+        borderRadius: 4,
+        background: 'rgba(200,160,84,0.15)',
+        border: '1px solid rgba(200,160,84,0.35)',
+        fontSize: 8.5,
+        fontFamily: "'DM Mono', monospace",
+        color: '#c8a054',
+        fontWeight: 500,
+        lineHeight: 1,
+        verticalAlign: 'top',
+        position: 'relative',
+        top: 3,
+        cursor: 'pointer',
+      }}
+    >
+      {index}
+    </sup>
+  )
+}
