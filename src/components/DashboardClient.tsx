@@ -1,6 +1,7 @@
 "use client"
-import { useState, useRef, useEffect } from 'react'
+import { useState, useRef, useEffect, useCallback } from 'react'
 import { signOut, useSession } from "next-auth/react"
+import { APP_CONFIG } from "@/lib/constants"
 
 const TOKENS_REMAINING = 10
 const TOKENS_TOTAL = 10
@@ -386,14 +387,75 @@ export default function DashboardClient() {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false)
   const [messages, setMessages] = useState<Message[]>(initialMessages)
   const [input, setInput] = useState('')
-  const [docActive, setDocActive] = useState(true)
+  const [docActive, setDocActive] = useState(false)
+  const [activeDocName, setActiveDocName] = useState<string | null>(null)
+  const [uploadStage, setUploadStage] = useState<string | null>(null)
+  const [isRemovingDoc, setIsRemovingDoc] = useState(false)
+  const [isDragOver, setIsDragOver] = useState(false)
   const [focused, setFocused] = useState(false)
   const bottomRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages])
+
+  const handleUploadFile = useCallback(async (file: File) => {
+    if (!file || file.type !== 'application/pdf') {
+      alert('Please upload a valid PDF file.')
+      return
+    }
+    const fileSizeMB = file.size / (1024 * 1024)
+    if (fileSizeMB > APP_CONFIG.MAX_FILE_SIZE_MB) {
+      alert(`File is too large. Maximum size is ${APP_CONFIG.MAX_FILE_SIZE_MB}MB.`)
+      return
+    }
+    setUploadStage('Extracting text...')
+    const formData = new FormData()
+    formData.append('file', file)
+    try {
+      setUploadStage('Analyzing document...')
+      const res = await fetch('/api/upload', { method: 'POST', body: formData })
+      const data = await res.json()
+      if (!res.ok) {
+        alert(data.error || 'Upload failed. Please try again.')
+        setUploadStage(null)
+        return
+      }
+      setUploadStage('Saving to database...')
+      await new Promise(r => setTimeout(r, 400))
+      setActiveDocName(data.document.filename)
+      setDocActive(true)
+      setMessages([])
+    } catch (e) {
+      alert('Something went wrong during upload.')
+    } finally {
+      setUploadStage(null)
+    }
+  }, [])
+
+  const handleDrop = useCallback((e: React.DragEvent) => {
+    e.preventDefault()
+    setIsDragOver(false)
+    const file = e.dataTransfer.files[0]
+    if (file) handleUploadFile(file)
+  }, [handleUploadFile])
+
+  async function handleRemoveDocument() {
+    setIsRemovingDoc(true)
+    try {
+      await fetch('/api/document', { method: 'DELETE' })
+      setDocActive(false)
+      setActiveDocName(null)
+      setMessages([])
+      setShowRemoveDocConfirm(false)
+    } catch (_) {
+      alert('Failed to remove document')
+    } finally {
+      setIsRemovingDoc(false)
+    }
+  }
 
   function handleSend() {
     const trimmed = input.trim()
@@ -439,10 +501,8 @@ export default function DashboardClient() {
           message="Are you sure you want to remove this document from the active session? Your chat context will be cleared."
           confirmText="Remove Document"
           onCancel={() => setShowRemoveDocConfirm(false)}
-          onConfirm={() => {
-            setDocActive(false)
-            setShowRemoveDocConfirm(false)
-          }}
+          onConfirm={handleRemoveDocument}
+          isLoading={isRemovingDoc}
         />
       )}
       {isSidebarOpen && (
@@ -529,9 +589,9 @@ export default function DashboardClient() {
                   whiteSpace: 'nowrap',
                   letterSpacing: '-0.01em',
                 }}
-                title="Q3_Enterprise_Architecture_Report_2026.pdf"
+                title={activeDocName || ''}
               >
-                Q3_Enterprise_Architecture_Report_2026.pdf
+                {activeDocName}
               </span>
               <button
                 onClick={() => setShowRemoveDocConfirm(true)}
@@ -564,33 +624,69 @@ export default function DashboardClient() {
                 ×
               </button>
             </div>
+          ) : uploadStage ? (
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 8,
+                border: '1px dashed rgba(124,107,255,0.3)',
+                borderRadius: 8,
+                padding: '14px 12px',
+                fontSize: 11.5,
+                color: '#7c6bff',
+              }}
+            >
+              <svg width="14" height="14" viewBox="0 0 14 14" fill="none" style={{ animation: 'spin 1s linear infinite', flexShrink: 0 }}>
+                <circle cx="7" cy="7" r="5.5" stroke="rgba(124,107,255,0.3)" strokeWidth="1.5" />
+                <path d="M7 1.5A5.5 5.5 0 0112.5 7" stroke="#7c6bff" strokeWidth="1.5" strokeLinecap="round" />
+              </svg>
+              {uploadStage}
+            </div>
           ) : (
             <div
               style={{
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
-                border: '1px dashed rgba(255,255,255,0.1)',
+                border: isDragOver ? '1px dashed rgba(124,107,255,0.5)' : '1px dashed rgba(255,255,255,0.1)',
                 borderRadius: 8,
                 padding: '14px 12px',
                 fontSize: 11.5,
-                color: '#3a3e58',
+                color: isDragOver ? '#7c6bff' : '#3a3e58',
                 cursor: 'pointer',
-                transition: 'border-color 0.2s, color 0.2s',
+                transition: 'border-color 0.2s, color 0.2s, background 0.2s',
+                background: isDragOver ? 'rgba(124,107,255,0.04)' : 'transparent',
               }}
               onMouseEnter={(e) => {
                 e.currentTarget.style.borderColor = 'rgba(124,107,255,0.3)'
                 e.currentTarget.style.color = '#7c6bff'
               }}
               onMouseLeave={(e) => {
-                e.currentTarget.style.borderColor = 'rgba(255,255,255,0.1)'
-                e.currentTarget.style.color = '#3a3e58'
+                if (!isDragOver) {
+                  e.currentTarget.style.borderColor = 'rgba(255,255,255,0.1)'
+                  e.currentTarget.style.color = '#3a3e58'
+                }
               }}
-              onClick={() => setDocActive(true)}
+              onClick={() => fileInputRef.current?.click()}
+              onDragOver={(e) => { e.preventDefault(); setIsDragOver(true) }}
+              onDragLeave={() => setIsDragOver(false)}
+              onDrop={handleDrop}
             >
-              + Upload a document
+              + Upload a PDF
             </div>
           )}
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="application/pdf"
+            style={{ display: 'none' }}
+            onChange={(e) => {
+              const file = e.target.files?.[0]
+              if (file) handleUploadFile(file)
+              e.target.value = ''
+            }}
+          />
         </div>
 
         <div style={{ flex: 1 }} />
@@ -782,7 +878,7 @@ export default function DashboardClient() {
                 letterSpacing: '0.01em',
               }}
             >
-              {docActive ? 'Q3_Enterprise_Architecture_Report_2026.pdf' : 'No document selected'}
+              {docActive ? activeDocName || 'No document selected' : 'No document selected'}
             </span>
           </div>
           <div style={{ flex: 1 }} />
