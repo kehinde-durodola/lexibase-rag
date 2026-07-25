@@ -9,7 +9,6 @@ export async function DELETE() {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
-    // onDelete: Cascade automatically wipes all DocumentChunks, Messages, etc.
     await prisma.document.deleteMany({ where: { userId: session.user.id } })
 
     return NextResponse.json({ success: true })

@@ -33,14 +33,10 @@ export async function POST(req: Request) {
       )
     }
 
-    // Phase 1 - Cleanup: Delete any existing document for this user (cascade wipes chunks)
     await prisma.document.deleteMany({ where: { userId: session.user.id } })
 
-    // Phase 2 - PDF Extraction (page-by-page to capture page numbers)
     const buffer = Buffer.from(await file.arrayBuffer())
 
-    // We collect each page's text and number via the custom pagerender callback.
-    // pdf-parse fires this once per page as it reads through the document.
     const pageRecords: Array<{ pageNumber: number; text: string }> = []
 
     async function pageRenderer(pageData: any) {
@@ -75,9 +71,6 @@ export async function POST(req: Request) {
       )
     }
 
-    // Phase 3 - Build Langchain Documents (one per page) then split.
-    // splitDocuments() clones each page's metadata (including pageNumber)
-    // onto every chunk it produces from that page — this is the key!
     const splitter = new RecursiveCharacterTextSplitter({
       chunkSize: APP_CONFIG.CHUNK_SIZE,
       chunkOverlap: APP_CONFIG.CHUNK_OVERLAP,
@@ -100,7 +93,6 @@ export async function POST(req: Request) {
       )
     }
 
-    // Phase 4 - OpenAI Vectorization (batched in groups of 100 to avoid payload limits)
     const allEmbeddings: number[][] = []
     const BATCH_SIZE = 100
     for (let i = 0; i < chunks.length; i += BATCH_SIZE) {
@@ -112,8 +104,6 @@ export async function POST(req: Request) {
       allEmbeddings.push(...response.data.map((d) => d.embedding))
     }
 
-    // Phase 5 - Database Persistence
-    // We save the chunk text, its page number in the metadata column, and the vector embedding.
     const document = await prisma.document.create({
       data: {
         userId: session.user.id,

@@ -3,8 +3,7 @@ import { useState, useRef, useEffect, useCallback } from 'react'
 import { signOut, useSession } from "next-auth/react"
 import { APP_CONFIG } from "@/lib/constants"
 
-const TOKENS_REMAINING = 10
-const TOKENS_TOTAL = 10
+const TOKENS_TOTAL = APP_CONFIG.MAX_DAILY_TOKENS
 
 function LexibaseMark() {
   return (
@@ -74,24 +73,21 @@ interface Message {
   sources?: { index: number; page: number }[]
 }
 
-const initialMessages: Message[] = [
-  {
-    role: 'user',
-    content: 'What is the primary conclusion of the Q3 report regarding our server infrastructure?',
-  },
-  {
-    role: 'assistant',
-    content: (
-      <>
-        The primary conclusion of the Q3 report is that the current server infrastructure is reaching its maximum capacity <CitationBadge index={1} /> and requires an immediate migration to a distributed microservices architecture by Q4 <CitationBadge index={2} />.
-      </>
-    ),
-    sources: [
-      { index: 1, page: 47 },
-      { index: 2, page: 12 },
-    ]
-  },
-]
+interface DbMessage {
+  id: string
+  role: string
+  content: string
+  sources: unknown
+  createdAt: Date | string
+}
+
+interface DashboardClientProps {
+  initialSession: { user: { id: string; name?: string | null; email?: string | null; image?: string | null } }
+  initialTokens: number
+  initialDocument: { id: string; filename: string } | null
+  initialMessages: DbMessage[]
+  initialHasMore: boolean
+}
 
 function ConfirmModal({
   title,
@@ -378,22 +374,35 @@ function SettingsModal({ onClose, user, update }: { onClose: () => void, user: a
   )
 }
 
-export default function DashboardClient() {
+export default function DashboardClient({
+  initialSession,
+  initialTokens,
+  initialDocument,
+  initialMessages: serverMessages,
+  initialHasMore,
+}: DashboardClientProps) {
   const { data: session, update } = useSession()
-  const user = session?.user
+  const user = session?.user ?? initialSession.user
 
   const [showSettingsModal, setShowSettingsModal] = useState(false)
   const [showRemoveDocConfirm, setShowRemoveDocConfirm] = useState(false)
   const [isSidebarOpen, setIsSidebarOpen] = useState(false)
-  const [messages, setMessages] = useState<Message[]>(initialMessages)
+  const [messages, setMessages] = useState<Message[]>(serverMessages as unknown as Message[])
+  const [tokensRemaining, setTokensRemaining] = useState(initialTokens)
+  const [isInitializing, setIsInitializing] = useState(false)
+  const [hasMoreMessages, setHasMoreMessages] = useState(initialHasMore)
+  const [isLoadingMore, setIsLoadingMore] = useState(false)
+  
   const [input, setInput] = useState('')
-  const [docActive, setDocActive] = useState(false)
-  const [activeDocName, setActiveDocName] = useState<string | null>(null)
+  const [docActive, setDocActive] = useState(!!initialDocument)
+  const [activeDocName, setActiveDocName] = useState<string | null>(initialDocument?.filename ?? null)
   const [uploadStage, setUploadStage] = useState<string | null>(null)
   const [isRemovingDoc, setIsRemovingDoc] = useState(false)
   const [isDragOver, setIsDragOver] = useState(false)
   const [focused, setFocused] = useState(false)
+  
   const bottomRef = useRef<HTMLDivElement>(null)
+  const topRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
@@ -717,15 +726,15 @@ export default function DashboardClient() {
                 style={{
                   fontSize: 11,
                   fontFamily: "'DM Mono', monospace",
-                  color: TOKENS_REMAINING <= 3 ? '#ff8c5a' : '#a598ff',
+                  color: tokensRemaining <= 3 ? '#ff8c5a' : '#a598ff',
                   fontWeight: 500,
                 }}
               >
-                {TOKENS_REMAINING}
+                {tokensRemaining}
                 <span style={{ color: '#3a3e58' }}>/{TOKENS_TOTAL}</span>
               </span>
             </div>
-            <TokenSegments remaining={TOKENS_REMAINING} total={TOKENS_TOTAL} />
+            <TokenSegments remaining={tokensRemaining} total={TOKENS_TOTAL} />
             <div
               style={{
                 marginTop: 8,
@@ -734,7 +743,7 @@ export default function DashboardClient() {
                 fontFamily: "'DM Mono', monospace",
               }}
             >
-              {TOKENS_REMAINING} remaining · resets in 14h
+              {tokensRemaining} remaining · resets in 14h
             </div>
           </div>
         </div>
