@@ -111,21 +111,28 @@ export async function POST(req: Request) {
       },
     })
 
-    for (let i = 0; i < chunks.length; i++) {
-      const chunk = chunks[i]
-      const vectorString = `[${allEmbeddings[i].join(",")}]`
-      const metadataJson = JSON.stringify(chunk.metadata) // e.g. {"pageNumber": 10}
+    const DB_BATCH_SIZE = 50
+    for (let i = 0; i < chunks.length; i += DB_BATCH_SIZE) {
+      const batchPromises = []
+      for (let j = i; j < i + DB_BATCH_SIZE && j < chunks.length; j++) {
+        const chunk = chunks[j]
+        const vectorString = `[${allEmbeddings[j].join(",")}]`
+        const metadataJson = JSON.stringify(chunk.metadata)
 
-      await prisma.$executeRaw`
-        INSERT INTO document_chunks (id, "documentId", content, metadata, embedding)
-        VALUES (
-          gen_random_uuid(),
-          ${document.id},
-          ${chunk.pageContent},
-          ${metadataJson}::jsonb,
-          ${vectorString}::vector
+        batchPromises.push(
+          prisma.$executeRaw`
+            INSERT INTO document_chunks (id, "documentId", content, metadata, embedding)
+            VALUES (
+              gen_random_uuid(),
+              ${document.id},
+              ${chunk.pageContent},
+              ${metadataJson}::jsonb,
+              ${vectorString}::vector
+            )
+          `
         )
-      `
+      }
+      await Promise.all(batchPromises)
     }
 
     return NextResponse.json({

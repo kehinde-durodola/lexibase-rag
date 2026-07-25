@@ -1,5 +1,5 @@
 "use client"
-import { useState, useRef, useEffect, useCallback } from 'react'
+import { useState, useRef, useEffect, useCallback, useLayoutEffect } from 'react'
 import { signOut, useSession } from "next-auth/react"
 import { APP_CONFIG } from "@/lib/constants"
 
@@ -67,10 +67,9 @@ function TokenSegments({ remaining, total }: { remaining: number; total: number 
   )
 }
 
-interface Message {
-  role: 'user' | 'assistant'
-  content: React.ReactNode | string
-  sources?: { index: number; page: number }[]
+interface SourceMeta {
+  chunkId: string
+  pageNumber: number | null
 }
 
 interface DbMessage {
@@ -387,28 +386,198 @@ export default function DashboardClient({
   const [showSettingsModal, setShowSettingsModal] = useState(false)
   const [showRemoveDocConfirm, setShowRemoveDocConfirm] = useState(false)
   const [isSidebarOpen, setIsSidebarOpen] = useState(false)
-  const [messages, setMessages] = useState<Message[]>(serverMessages as unknown as Message[])
   const [tokensRemaining, setTokensRemaining] = useState(initialTokens)
-  const [isInitializing, setIsInitializing] = useState(false)
+  const [isMounted, setIsMounted] = useState(false)
+  const [isInitializing] = useState(false)
   const [hasMoreMessages, setHasMoreMessages] = useState(initialHasMore)
   const [isLoadingMore, setIsLoadingMore] = useState(false)
-  
-  const [input, setInput] = useState('')
   const [docActive, setDocActive] = useState(!!initialDocument)
   const [activeDocName, setActiveDocName] = useState<string | null>(initialDocument?.filename ?? null)
   const [uploadStage, setUploadStage] = useState<string | null>(null)
   const [isRemovingDoc, setIsRemovingDoc] = useState(false)
   const [isDragOver, setIsDragOver] = useState(false)
   const [focused, setFocused] = useState(false)
-  
-  const bottomRef = useRef<HTMLDivElement>(null)
-  const topRef = useRef<HTMLDivElement>(null)
-  const textareaRef = useRef<HTMLTextAreaElement>(null)
-  const fileInputRef = useRef<HTMLInputElement>(null)
+
+  const [streamingMessages, setStreamingMessages] = useState<{ id: string; role: 'user' | 'assistant'; content: string; sources?: { chunkId: string; pageNumber: number | null }[] }[]>(
+    (serverMessages as DbMessage[]).map((m) => {
+      const rawSources = Array.isArray(m.sources) ? (m.sources as { chunkId: string; pageNumber: number | null }[]) : []
+      const filtered = m.role === 'assistant' ? filterSourcesToCited(m.content, rawSources) : []
+      return {
+        id: m.id,
+        role: m.role as 'user' | 'assistant',
+        content: m.content,
+        sources: filtered.length > 0 ? filtered : undefined,
+      }
+    })
+  )
+  const [input, setInput] = useState('')
+  const [isChatLoading, setIsChatLoading] = useState(false)
+  const [hoursUntilReset, setHoursUntilReset] = useState<number | null>(null)
 
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [messages])
+    const calc = () => {
+      const now = new Date()
+      const tomorrow = new Date(now)
+      tomorrow.setHours(24, 0, 0, 0)
+      const diff = tomorrow.getTime() - now.getTime()
+      setHoursUntilReset(Math.max(1, Math.ceil(diff / (1000 * 60 * 60))))
+    }
+    calc()
+    const interval = setInterval(calc, 1000 * 60 * 60)
+    return () => clearInterval(interval)
+  }, [])
+
+  useEffect(() => {
+    const fetchTokens = async () => {
+      try {
+        const res = await fetch('/api/user/tokens')
+        if (res.ok) {
+          const data = await res.json()
+          if (typeof data.tokens === 'number') {
+            setTokensRemaining(data.tokens)
+          }
+        }
+      } catch (err) {
+        console.error("Failed to fetch tokens on focus", err)
+      }
+    }
+
+    window.addEventListener('focus', fetchTokens)
+    return () => window.removeEventListener('focus', fetchTokens)
+  }, [])
+
+  const bottomRef = useRef<HTMLDivElement>(null)
+  const topRef = useRef<HTMLDivElement>(null)
+  const scrollContainerRef = useRef<HTMLDivElement>(null)
+  const textareaRef = useRef<HTMLTextAreaElement>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
+  const [previousScrollHeight, setPreviousScrollHeight] = useState<number | null>(null)
+
+  useLayoutEffect(() => {
+    if (previousScrollHeight !== null && scrollContainerRef.current) {
+      const newScrollHeight = scrollContainerRef.current.scrollHeight
+      scrollContainerRef.current.scrollTop += (newScrollHeight - previousScrollHeight)
+      setPreviousScrollHeight(null)
+    }
+  }, [streamingMessages, previousScrollHeight])
+
+  const isInitialScroll = useRef(true)
+  const lastMessage = streamingMessages[streamingMessages.length - 1]
+  
+  useLayoutEffect(() => {
+    const container = scrollContainerRef.current;
+    if (!container) return;
+
+    if (isInitialScroll.current) {
+      container.scrollTop = container.scrollHeight;
+      isInitialScroll.current = false;
+      setIsMounted(true);
+    } else {
+      container.scrollTo({
+        top: container.scrollHeight,
+        behavior: 'smooth'
+      });
+    }
+  }, [lastMessage?.id, lastMessage?.content, lastMessage?.sources])
+
+  const loadMoreMessages = useCallback(async () => {
+    if (isLoadingMore || !hasMoreMessages || streamingMessages.length === 0) return
+    setIsLoadingMore(true)
+    const cursor = streamingMessages[0].id
+    try {
+      const res = await fetch(`/api/messages?cursor=${cursor}`)
+      if (res.ok) {
+        const data = await res.json()
+        if (data.messages && data.messages.length > 0) {
+          const processed = data.messages.map((m: any) => {
+            const rawSources = Array.isArray(m.sources) ? m.sources : []
+            const filtered = m.role === 'assistant' ? filterSourcesToCited(m.content, rawSources) : []
+            return {
+              id: m.id,
+              role: m.role as 'user' | 'assistant',
+              content: m.content,
+              sources: filtered.length > 0 ? filtered : undefined,
+            }
+          })
+          
+          setPreviousScrollHeight(scrollContainerRef.current?.scrollHeight ?? 0)
+
+          setStreamingMessages(prev => {
+            const prevIds = new Set(prev.map(m => m.id))
+            const newMessages = processed.filter((m: any) => !prevIds.has(m.id))
+            return [...newMessages, ...prev]
+          })
+        }
+        setHasMoreMessages(data.hasMore)
+      }
+    } catch (error) {
+      console.error('Failed to load older messages', error)
+    } finally {
+      setIsLoadingMore(false)
+    }
+  }, [isLoadingMore, hasMoreMessages, streamingMessages])
+
+  useEffect(() => {
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0].isIntersecting && hasMoreMessages && !isLoadingMore) {
+          loadMoreMessages()
+        }
+      },
+      { threshold: 0.1, rootMargin: '100px' }
+    )
+
+    if (topRef.current) {
+      observer.observe(topRef.current)
+    }
+
+    return () => observer.disconnect()
+  }, [hasMoreMessages, isLoadingMore, loadMoreMessages])
+
+  const sendMessage = useCallback(async (text: string) => {
+    if (!text.trim() || isChatLoading) return
+    const userMsg = { id: Date.now().toString(), role: 'user' as const, content: text }
+    setStreamingMessages((prev) => [...prev, userMsg])
+    setInput('')
+    setIsChatLoading(true)
+    const aiMsgId = (Date.now() + 1).toString()
+    setStreamingMessages((prev) => [...prev, { id: aiMsgId, role: 'assistant', content: '' }])
+    try {
+      const res = await fetch('/api/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message: text }),
+      })
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}))
+        setStreamingMessages((prev) => prev.map((m) => m.id === aiMsgId ? { ...m, content: err.error || 'Something went wrong.' } : m))
+        if (res.status === 403) setTokensRemaining(0)
+        return
+      }
+      const sourcesHeader = res.headers.get('X-Sources')
+      const allSources: { chunkId: string; pageNumber: number | null }[] = sourcesHeader ? JSON.parse(sourcesHeader) : []
+      const reader = res.body!.getReader()
+      const decoder = new TextDecoder()
+      let accumulated = ''
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+        accumulated += decoder.decode(value, { stream: true })
+        setStreamingMessages((prev) => prev.map((m) => m.id === aiMsgId ? { ...m, content: accumulated } : m))
+      }
+      const citedSources = filterSourcesToCited(accumulated, allSources)
+      if (citedSources.length > 0) {
+        setStreamingMessages((prev) => prev.map((m) => m.id === aiMsgId ? { ...m, sources: citedSources } : m))
+      }
+      setTokensRemaining((prev) => Math.max(0, prev - 1))
+    } catch (_) {
+      setStreamingMessages((prev) => prev.map((m) => m.id === aiMsgId ? { ...m, content: 'Connection error. Please try again.' } : m))
+      setTokensRemaining((prev) => Math.min(APP_CONFIG.MAX_DAILY_TOKENS, prev + 1))
+    } finally {
+      setIsChatLoading(false)
+    }
+  }, [isChatLoading])
+
 
   const handleUploadFile = useCallback(async (file: File) => {
     if (!file || file.type !== 'application/pdf') {
@@ -436,7 +605,6 @@ export default function DashboardClient({
       await new Promise(r => setTimeout(r, 400))
       setActiveDocName(data.document.filename)
       setDocActive(true)
-      setMessages([])
     } catch (e) {
       alert('Something went wrong during upload.')
     } finally {
@@ -457,8 +625,9 @@ export default function DashboardClient({
       await fetch('/api/document', { method: 'DELETE' })
       setDocActive(false)
       setActiveDocName(null)
-      setMessages([])
       setShowRemoveDocConfirm(false)
+      setStreamingMessages([])
+      setHasMoreMessages(false)
     } catch (_) {
       alert('Failed to remove document')
     } finally {
@@ -466,27 +635,12 @@ export default function DashboardClient({
     }
   }
 
-  function handleSend() {
-    const trimmed = input.trim()
-    if (!trimmed) return
-    setMessages((prev) => [...prev, { role: 'user', content: trimmed }])
-    setInput('')
-    setTimeout(() => {
-      setMessages((prev) => [
-        ...prev,
-        {
-          role: 'assistant',
-          content:
-            'I\'m analyzing the document to find the most relevant information for your query.',
-        },
-      ])
-    }, 800)
-  }
-
   function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault()
-      handleSend()
+      if (!isChatLoading && input.trim()) {
+        sendMessage(input)
+      }
     }
   }
 
@@ -495,7 +649,7 @@ export default function DashboardClient({
       className="dashboard-main-flex"
       style={{
         display: 'flex',
-        height: '100vh',
+        height: '100dvh',
         width: '100%',
         background: '#09090e',
         fontFamily: "'Plus Jakarta Sans', sans-serif",
@@ -682,7 +836,8 @@ export default function DashboardClient({
               onDragLeave={() => setIsDragOver(false)}
               onDrop={handleDrop}
             >
-              + Upload a PDF
+              <span>+ Upload a PDF</span>
+              <span style={{ fontSize: 10, opacity: 0.4, marginLeft: 6 }}>(Max 10MB)</span>
             </div>
           )}
           <input
@@ -743,7 +898,7 @@ export default function DashboardClient({
                 fontFamily: "'DM Mono', monospace",
               }}
             >
-              {tokensRemaining} remaining · resets in 14h
+              {tokensRemaining} remaining · resets in {hoursUntilReset !== null ? hoursUntilReset : '--'}h
             </div>
           </div>
         </div>
@@ -894,18 +1049,31 @@ export default function DashboardClient({
         </div>
 
         <div
+          ref={scrollContainerRef}
           style={{
             flex: 1,
             overflowY: 'auto',
             padding: '40px 0',
+            opacity: isMounted ? 1 : 0,
+            transition: 'opacity 0.15s ease-out',
           }}
         >
           <div style={{ maxWidth: 780, margin: '0 auto', padding: '0 32px', display: 'flex', flexDirection: 'column', gap: 32 }}>
-            {messages.map((msg, i) =>
+            <div ref={topRef} style={{ height: 1 }} />
+            {isLoadingMore && (
+              <div style={{ textAlign: 'center', padding: '10px 0' }}>
+                <div style={{ display: 'flex', gap: 5, justifyContent: 'center', alignItems: 'center' }}>
+                  {[0, 1, 2].map((i) => (
+                    <div key={`loader-${i}`} style={{ width: 6, height: 6, borderRadius: '50%', background: '#7c6bff', opacity: 0.5, animation: `pulse 1.2s ease-in-out ${i * 0.2}s infinite` }} />
+                  ))}
+                </div>
+              </div>
+            )}
+            {streamingMessages.map((msg) =>
               msg.role === 'user' ? (
-                <UserMessage key={i} content={msg.content} />
+                <UserMessage key={msg.id} content={msg.content} />
               ) : (
-                <AssistantMessage key={i} content={msg.content} sources={msg.sources} />
+                <AssistantMessage key={msg.id} content={msg.content} sources={msg.sources} />
               )
             )}
             <div ref={bottomRef} />
@@ -968,8 +1136,12 @@ export default function DashboardClient({
                 }}
               />
               <button
-                onClick={handleSend}
-                disabled={!input.trim()}
+                onClick={() => {
+                  if (!isChatLoading && input.trim()) {
+                    sendMessage(input)
+                  }
+                }}
+                disabled={!input.trim() || isChatLoading}
                 style={{
                   flexShrink: 0,
                   width: 36,
@@ -1016,7 +1188,50 @@ export default function DashboardClient({
   )
 }
 
-function UserMessage({ content }: { content: React.ReactNode | string }) {
+function filterSourcesToCited(
+  content: string,
+  sources: { chunkId: string; pageNumber: number | null }[]
+): { chunkId: string; pageNumber: number | null }[] {
+  const citedIndices: number[] = []
+  const citeRegex = /<cite>(\d+)<\/cite>/g
+  let m
+  while ((m = citeRegex.exec(content)) !== null) {
+    const idx = parseInt(m[1])
+    if (!citedIndices.includes(idx) && idx < sources.length) {
+      citedIndices.push(idx)
+    }
+  }
+  return citedIndices.map((idx) => sources[idx])
+}
+
+function parseCitations(text: string): React.ReactNode {
+  const indexToBadge = new Map<number, number>()
+  let counter = 1
+  const scanRegex = /<cite>(\d+)<\/cite>/g
+  let scanMatch
+  while ((scanMatch = scanRegex.exec(text)) !== null) {
+    const idx = parseInt(scanMatch[1])
+    if (!indexToBadge.has(idx)) {
+      indexToBadge.set(idx, counter++)
+    }
+  }
+  const parts = text.split(/(<cite>\d+<\/cite>)/g)
+  return (
+    <>
+      {parts.map((part, i) => {
+        const match = part.match(/^<cite>(\d+)<\/cite>$/)
+        if (match) {
+          const badge = indexToBadge.get(parseInt(match[1]))
+          if (badge === undefined) return null
+          return <CitationBadge key={i} index={badge} />
+        }
+        return part
+      })}
+    </>
+  )
+}
+
+function UserMessage({ content }: { content: string }) {
   return (
     <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
       <div
@@ -1040,25 +1255,20 @@ function UserMessage({ content }: { content: React.ReactNode | string }) {
   )
 }
 
-function AssistantMessage({ content, sources }: { content: React.ReactNode | string; sources?: { index: number; page: number }[] }) {
+function AssistantMessage({ content, sources }: { content: string; sources?: { chunkId: string; pageNumber: number | null }[] }) {
   return (
     <div style={{ display: 'flex', gap: 16 }}>
       <div
         style={{
           width: 32,
           height: 32,
-          borderRadius: 8,
-          background: 'linear-gradient(135deg, rgba(124,107,255,0.2) 0%, rgba(124,107,255,0.05) 100%)',
-          border: '1px solid rgba(124,107,255,0.2)',
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
           flexShrink: 0,
         }}
       >
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#7c6bff" strokeWidth="2">
-          <path d="M12 2a2 2 0 0 1 2 2c-.001.552-.448 1-1 1-.552.001-1 .448-1 1v1h2a2 2 0 0 1 2 2v2h3a2 2 0 0 1 2 2v2a2 2 0 0 1-2 2h-3v2a2 2 0 0 1-2 2H9a2 2 0 0 1-2-2v-2H4a2 2 0 0 1-2-2v-2a2 2 0 0 1 2-2h3V9a2 2 0 0 1 2-2h2V6c0-.552-.448-1-1-1-.552-.001-1-.448-1-1a2 2 0 0 1 2-2z" strokeLinecap="round" strokeLinejoin="round"/>
-        </svg>
+        <LexibaseMark />
       </div>
       <div style={{ flex: 1 }}>
         <div
@@ -1073,28 +1283,35 @@ function AssistantMessage({ content, sources }: { content: React.ReactNode | str
         >
           LEXIBASE AI
         </div>
-        <div
-          style={{
-            background: '#0f1119',
-            border: '1px solid rgba(255,255,255,0.06)',
-            borderLeft: '2px solid rgba(124,107,255,0.5)',
-            borderRadius: '4px 12px 12px 12px',
-            padding: '16px 20px',
-            fontSize: 14,
-            color: '#c8ccdf',
-            lineHeight: 1.75,
-            letterSpacing: '-0.01em',
-            boxShadow: '0 4px 24px rgba(0,0,0,0.2)',
-          }}
-        >
-          <span>{content}</span>
-        </div>
-
+        {!content ? (
+          <div style={{ height: 32, display: 'flex', gap: 5, alignItems: 'center', paddingLeft: 4 }}>
+            {[0, 1, 2].map((i) => (
+              <div key={i} style={{ width: 6, height: 6, borderRadius: '50%', background: '#7c6bff', opacity: 0.5, animation: `pulse 1.2s ease-in-out ${i * 0.2}s infinite` }} />
+            ))}
+          </div>
+        ) : (
+          <div
+            style={{
+              background: '#0f1119',
+              border: '1px solid rgba(255,255,255,0.06)',
+              borderLeft: '2px solid rgba(124,107,255,0.5)',
+              borderRadius: '4px 12px 12px 12px',
+              padding: '16px 20px',
+              fontSize: 14,
+              color: '#c8ccdf',
+              lineHeight: 1.75,
+              letterSpacing: '-0.01em',
+              boxShadow: '0 4px 24px rgba(0,0,0,0.2)',
+            }}
+          >
+            <span>{parseCitations(content)}</span>
+          </div>
+        )}
         {sources && sources.length > 0 && (
           <div style={{ marginTop: 10, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-            {sources.map((src) => (
+            {sources.map((src, i) => (
               <div
-                key={src.index}
+                key={src.chunkId}
                 style={{
                   display: 'inline-flex',
                   alignItems: 'center',
@@ -1103,15 +1320,11 @@ function AssistantMessage({ content, sources }: { content: React.ReactNode | str
                   background: 'rgba(200,160,84,0.06)',
                   border: '1px solid rgba(200,160,84,0.15)',
                   borderRadius: 7,
-                  cursor: 'pointer',
+                  cursor: 'default',
                   transition: 'background 0.15s',
                 }}
-                onMouseEnter={(e) => {
-                  (e.currentTarget as HTMLDivElement).style.background = 'rgba(200,160,84,0.1)'
-                }}
-                onMouseLeave={(e) => {
-                  (e.currentTarget as HTMLDivElement).style.background = 'rgba(200,160,84,0.06)'
-                }}
+                onMouseEnter={(e) => { (e.currentTarget as HTMLDivElement).style.background = 'rgba(200,160,84,0.1)' }}
+                onMouseLeave={(e) => { (e.currentTarget as HTMLDivElement).style.background = 'rgba(200,160,84,0.06)' }}
               >
                 <PdfIcon />
                 <span
@@ -1122,7 +1335,7 @@ function AssistantMessage({ content, sources }: { content: React.ReactNode | str
                     letterSpacing: '0.03em',
                   }}
                 >
-                  Source [{src.index}] · Page {src.page}
+                  [{i + 1}] · Page {src.pageNumber ?? '—'}
                 </span>
               </div>
             ))}
